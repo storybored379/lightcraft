@@ -140,6 +140,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.rename", "Rename Photos…", Some("F2"), "Photo"),
     ("dialog.labelNames", "Edit Color Label Names…", None, ""),
     ("dialog.captureTime", "Edit Capture Time…", None, "Photo"),
+    ("photo.tagFromTracklog", "Auto-Tag from Tracklog…", None, "Photo"),
     ("app.exportPrevious", "Export with Previous", Some("Cmd+Alt+Shift+E"), "File"),
 ];
 
@@ -916,6 +917,47 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             r
         }
+        "photo.tagFromTracklog" => {
+            // a GPX file → GPS for the selected photos by capture time (one undo step)
+            let path = match p.get("path").and_then(Value::as_str) {
+                Some(x) => Some(x.to_string()),
+                None => app.services.pick_tracklog.as_mut().and_then(|f| f().into_iter().next()),
+            };
+            let Some(path) = path else { return Some(Ok(Value::Null)) };
+            let mut params = p.as_object().cloned().unwrap_or_default();
+            params.insert("path".into(), json!(path));
+            let ask_zone = !params.contains_key("offset");
+            let params = Value::Object(params);
+            if ask_zone {
+                // GPX times are UTC, camera clocks are local: ask for the camera's zone, then come back here
+                crate::panels::dialogs::prompt(
+                    app,
+                    "Auto-Tag from Tracklog",
+                    "Camera time zone, e.g. -07:00 (empty: UTC)",
+                    "",
+                    "photo.tagFromTracklog",
+                    params,
+                    "offset",
+                );
+                return Some(Ok(Value::Null));
+            }
+            let r = app.run("photo.autoTagTracklog", params);
+            if let Ok(v) = &r {
+                let n = v["tagged"].as_u64().unwrap_or(0);
+                let sk = &v["skipped"];
+                let mut msg = format!("Tagged {n} photo{} from the tracklog", if n == 1 { "" } else { "s" });
+                let outside = sk["outside"].as_u64().unwrap_or(0);
+                if outside > 0 {
+                    msg += &format!("; {outside} outside its time range");
+                }
+                let kept = sk["hasGps"].as_u64().unwrap_or(0);
+                if kept > 0 {
+                    msg += &format!("; {kept} already had a location");
+                }
+                app.toast(&egui::Context::default(), msg);
+            }
+            r
+        }
         "photo.locate" => {
             let Some(id) = app.session.active() else { return Some(Err("no photo selected".into())) };
             let path = match p.get("path").and_then(Value::as_str) {
@@ -1111,6 +1153,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "app.export" | "dialog.export" | "dialog.createPreset" | "dialog.rename" | "dialog.captureTime" | "dialog.copySettings" => {
             app.session.active().is_some()
         }
+        "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),
         "app.showInFinder" => {

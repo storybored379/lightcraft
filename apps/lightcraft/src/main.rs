@@ -174,6 +174,14 @@ fn services() -> Services {
                 .map(|p| p.to_string_lossy().to_string())
                 .collect()
         })),
+        pick_tracklog: Some(Box::new(|| {
+            rfd::FileDialog::new()
+                .set_title("Auto-Tag from Tracklog")
+                .add_filter("GPS Track Log", &["gpx"])
+                .pick_file()
+                .map(|p| vec![p.to_string_lossy().to_string()])
+                .unwrap_or_default()
+        })),
         save_preset_file: Some(Box::new(|name: &str| {
             rfd::FileDialog::new()
                 .set_title("Export Presets")

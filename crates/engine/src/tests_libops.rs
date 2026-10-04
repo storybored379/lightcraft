@@ -401,3 +401,68 @@ fn keyword_sets_and_recent_keywords() {
     s.execute("keyword.deleteSet", &json!({"name": "Wedding"})).unwrap();
     assert_eq!(s.execute("keyword.sets", &json!({})).unwrap()["current"], "Recent Keywords");
 }
+
+/// Auto-Tag from Tracklog: GPS positions from a GPX file by capture time — interpolated within a
+/// segment, the camera's zone from the photo or `offset`; photos with GPS kept unless `replace`;
+/// one undo step, replayed from the op log.
+#[test]
+fn tracklog_auto_tag() {
+    use lightcraft_catalog::{Op, PhotoId};
+    const GPX: &str = r#"<?xml version="1.0"?>
+<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>
+  <trkpt lat="46.0000" lon="7.0000"><time>2026-05-01T10:00:00Z</time></trkpt>
+  <trkpt lat="46.0010" lon="7.0020"><time>2026-05-01T10:01:00Z</time></trkpt>
+  <trkpt lat="46.0020" lon="7.0040"><time>2026-05-01T10:02:00Z</time></trkpt>
+</trkseg></trk></gpx>"#;
+    let dir = temp_dir("tracklog");
+    let gpx_path = dir.join("walk.gpx");
+    std::fs::write(&gpx_path, GPX).unwrap();
+    let mut s = Session::new();
+    s.open_library(dir.join("lib"), true).unwrap();
+    let ids: Vec<u64> = s.visible_cloned().iter().take(4).map(|p| p.0).collect();
+    let set = |s: &mut Session, id: u64, t: &str| {
+        s.commit("t", Op::SetCaptured { id: PhotoId(id), captured: Some(t.into()) }).unwrap();
+    };
+    set(&mut s, ids[0], "2026-05-01T12:00:30"); // camera clock on +02:00, no zone recorded
+    set(&mut s, ids[1], "2026-05-01T12:01:00+02:00"); // zone recorded: exactly on the 2nd point
+    set(&mut s, ids[2], "2026-05-01T15:00:00"); // hours after the log ends
+    set(&mut s, ids[3], "2026-05-01T12:02:00");
+    s.execute("photo.setMeta", &json!({"ids": [ids[3]], "gps": [10.0, 20.0]})).unwrap();
+    let gps = |s: &Session, id: u64| s.catalog.photo(PhotoId(id)).unwrap().meta.gps;
+    let before: Vec<_> = ids.iter().map(|i| gps(&s, *i)).collect();
+    let path = gpx_path.to_string_lossy().to_string();
+    // a dry run reports without changing anything
+    let r = s.execute("photo.autoTagTracklog", &json!({"path": path, "ids": ids, "offset": "+02:00", "dryRun": true})).unwrap();
+    assert_eq!((r["tagged"].as_u64(), r["interpolated"].as_u64()), (Some(2), Some(2)), "{r}");
+    assert_eq!(r["skipped"], json!({"noTime": 0, "outside": 1, "hasGps": 1}));
+    assert_eq!((r["points"].as_u64(), r["start"].as_str()), (Some(3), Some("2026-05-01T10:00:00Z")));
+    assert_eq!(ids.iter().map(|i| gps(&s, *i)).collect::<Vec<_>>(), before);
+    // tag: one undo step
+    let undo_depth = s.undo.len();
+    s.execute("photo.autoTagTracklog", &json!({"path": path, "ids": ids, "offset": 2})).unwrap();
+    assert_eq!(s.undo.len(), undo_depth + 1);
+    assert_eq!(gps(&s, ids[0]), Some((46.0005, 7.001)), "interpolated half-way between the first two points");
+    assert_eq!(gps(&s, ids[1]), Some((46.001, 7.002)));
+    assert_eq!(gps(&s, ids[2]), None);
+    assert_eq!(gps(&s, ids[3]), Some((10.0, 20.0)), "existing GPS kept without `replace`");
+    // without an offset, zone-less capture times count as UTC (and are reported)
+    let r = s.execute("photo.autoTagTracklog", &json!({"gpx": GPX, "ids": [ids[0]], "replace": true, "dryRun": true})).unwrap();
+    assert_eq!((r["tagged"].as_u64(), r["assumedUtc"].as_u64()), (Some(0), Some(1)), "{r}");
+    // replace: the photo that had GPS gets the track's position (its last point, 12:02 local)
+    s.execute("photo.autoTagTracklog", &json!({"gpx": GPX, "ids": [ids[3]], "offset": "+02:00", "replace": true})).unwrap();
+    assert_eq!(gps(&s, ids[3]), Some((46.002, 7.004)));
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(gps(&s, ids[3]), Some((10.0, 20.0)));
+    // the op log replays the tags
+    let expect = s.catalog.to_snapshot();
+    drop(s);
+    let mut s = Session::new();
+    s.open_library(dir.join("lib"), false).unwrap();
+    assert_eq!(s.catalog.to_snapshot(), expect);
+    // errors: no file, not GPX, no timed points, bad offset
+    assert!(s.execute("photo.autoTagTracklog", &json!({"ids": [ids[0]]})).is_err());
+    assert!(s.execute("photo.autoTagTracklog", &json!({"gpx": "<kml/>", "ids": [ids[0]]})).is_err());
+    assert!(s.execute("photo.autoTagTracklog", &json!({"gpx": "<gpx><trk><trkseg/></trk></gpx>", "ids": [ids[0]]})).is_err());
+    assert!(s.execute("photo.autoTagTracklog", &json!({"gpx": GPX, "ids": [ids[0]], "offset": "noon"})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

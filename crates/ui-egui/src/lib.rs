@@ -63,6 +63,8 @@ pub struct Services {
     pub pick_files: Option<PickFiles>,
     /// Open dialog for preset files (`.lcpreset`, `.xmp`, `.lrtemplate`, `.zip`, `.dng`, Luminar `.lmp` / `.mplumpack`).
     pub pick_preset_files: Option<PickFiles>,
+    /// Open dialog for a GPS track log (`.gpx`; Photo ▸ Auto-Tag from Tracklog…).
+    pub pick_tracklog: Option<PickFiles>,
     /// Save dialog for an exported `.lcpreset` file.
     pub save_preset_file: Option<SaveFile>,
     /// Open dialog for point-curve preset files (`.lccurve`).

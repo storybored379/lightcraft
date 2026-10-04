@@ -156,6 +156,7 @@ fn services(originals: Originals, backend: Option<Backend>, ctx: egui::Context) 
         })),
         // Preset files: browser pickers are asynchronous; not wired on the web yet.
         pick_preset_files: None,
+        pick_tracklog: None,
         save_preset_file: None,
         pick_curve_preset_files: None,
         save_curve_preset_file: None,

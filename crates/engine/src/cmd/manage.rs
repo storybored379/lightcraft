@@ -59,6 +59,97 @@ fn set_names_ops(s: &crate::Session, names: &[String; 5]) -> Vec<Op> {
         .collect()
 }
 
+/// Geotag photos from a GPX track log by capture time (Lightroom Classic's Map ▸ Tracklog ▸
+/// Auto-Tag Photos). GPX times are UTC; capture times are the camera's local clock, so a photo's
+/// recorded zone (Exif `OffsetTimeOriginal`) or the `offset` parameter converts them.
+fn auto_tag_tracklog(s: &mut crate::Session, p: &Value) -> Result<Value> {
+    use lightcraft_meta::{DateTime, Match, parse_gpx};
+    const C: &str = "photo.autoTagTracklog";
+    let text = match (str_param(p, "gpx"), str_param(p, "path")) {
+        (Some(t), _) => t.to_string(),
+        (None, Some(path)) => std::fs::read_to_string(path).map_err(|e| bad(C, format!("can't read {path}: {e}")))?,
+        (None, None) => return Err(bad(C, "missing `path` (a .gpx file) or `gpx` (its text)")),
+    };
+    let log = parse_gpx(&text).map_err(|e| bad(C, e.to_string()))?;
+    let (start, end) = log.span().ok_or_else(|| bad(C, "the track log has no timed track points"))?;
+    // minutes east of UTC; `None` = not given (zone-less capture times are then read as UTC)
+    let offset: Option<i64> = match p.get("offset") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(o)) if o.trim().is_empty() => None,
+        Some(Value::Number(h)) => {
+            let h = h.as_f64().unwrap_or(0.0);
+            if h.abs() > 18.0 {
+                return Err(bad(C, "offset is at most ±18 hours"));
+            }
+            Some((h * 60.0).round() as i64)
+        }
+        Some(Value::String(o)) => {
+            Some(DateTime::parse_offset(o).ok_or_else(|| bad(C, format!("can't read offset `{o}` (e.g. +02:00 or -5)")))? as i64)
+        }
+        Some(_) => return Err(bad(C, "offset is `+HH:MM` or a number of hours")),
+    };
+    let max_gap = f64_or(p, "maxGap", 600.0);
+    if max_gap.is_nan() || max_gap < 0.0 {
+        return Err(bad(C, "maxGap must be ≥ 0 seconds"));
+    }
+    let replace = bool_or(p, "replace", false);
+    let (mut no_time, mut outside, mut has_gps, mut assumed_utc, mut interpolated) = (0, 0, 0, 0, 0);
+    let mut ops = Vec::new();
+    let mut photos = Vec::new();
+    for id in s.targets(p) {
+        let Some(ph) = s.catalog.photo(id) else { continue };
+        if ph.meta.gps.is_some() && !replace {
+            has_gps += 1;
+            continue;
+        }
+        let Some(dt) = ph.captured.as_deref().and_then(DateTime::parse_iso) else {
+            no_time += 1;
+            continue;
+        };
+        // UTC seconds: the recorded zone wins, else the caller's offset
+        let utc = match dt.offset_minutes {
+            Some(_) => dt.unix_seconds(),
+            None => {
+                if offset.is_none() {
+                    assumed_utc += 1;
+                }
+                dt.unix_seconds() - offset.unwrap_or(0) * 60
+            }
+        } as f64
+            + dt.millis as f64 / 1000.0;
+        let Some((g, m)) = log.locate(utc, max_gap) else {
+            outside += 1;
+            continue;
+        };
+        if m == Match::Interpolated {
+            interpolated += 1;
+        }
+        let pos = ((g.latitude * 1e7).round() / 1e7, (g.longitude * 1e7).round() / 1e7);
+        photos.push(json!({"id": id.0, "gps": [pos.0, pos.1], "match": if m == Match::Interpolated { "interpolated" } else { "nearest" }}));
+        if ph.meta.gps != Some(pos) {
+            let mut meta = ph.meta.clone();
+            meta.gps = Some(pos);
+            ops.push(Op::SetMeta { id, meta: Box::new(meta) });
+        }
+    }
+    let tagged = photos.len();
+    if !bool_or(p, "dryRun", false) && !ops.is_empty() {
+        s.commit("Auto-Tag from Tracklog", Op::Batch { ops })?;
+    }
+    let iso = |t: f64| format!("{}Z", lightcraft_catalog::dates::civil(t.floor() as i64));
+    Ok(json!({
+        "tagged": tagged,
+        "interpolated": interpolated,
+        "nearest": tagged - interpolated,
+        "skipped": {"noTime": no_time, "outside": outside, "hasGps": has_gps},
+        "assumedUtc": assumed_utc,
+        "points": log.points.len(),
+        "start": iso(start),
+        "end": iso(end),
+        "photos": photos,
+    }))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "photo.renameTokens", "Rename Template Tags", [], None, "{} → {tokens: [{tag, aliases, meaning, example}], dateDirectives: [{directive, meaning}], notes: [..], sample} — the file-name template tags shared by photo.rename, library.import (rename) and app.export (naming); examples are for a sample photo", always, |_, _| {
@@ -129,6 +220,15 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 Ok(json!({"changed": n, "captured": out}))
             }
+        ),
+        cmd!(
+            "photo.autoTagTracklog",
+            "Auto-Tag Photos from Tracklog",
+            [],
+            None,
+            "{path?: GPX file | gpx?: GPX text, ids?, offset?: camera clock's UTC offset for photos whose capture time has no zone (`+02:00`, or hours; default UTC), maxGap?: seconds (600), replace?: bool (also photos that already have GPS), dryRun?: bool} → {tagged, interpolated, nearest, skipped: {noTime, outside, hasGps}, assumedUtc, points, start, end, photos: [{id, gps, match}]} — positions from the track log by capture time; one undo step",
+            has_selection,
+            auto_tag_tracklog
         ),
         cmd!(query "label.names", "Color Label Names", [], None, "{} → [{label, name, custom}]", always, |s, _| {
             Ok(json!(ColorLabel::ALL

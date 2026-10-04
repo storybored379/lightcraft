@@ -47,10 +47,10 @@ and prints the summary; `cargo xtask parity --write` refreshes the summary table
 | X. Cross-cutting behaviours (BEHAV) | 15 | 1 | 2 | 1 | 8/8 (100%) | 6/6 (100%) |
 | Y. Menus | 81 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 74 | 3 | 3 | 1 | 49/52 (94%) | 22/23 (96%) |
-| Lightroom Classic extras | 29 | 9 | 41 | 9 | — | 20/21 (95%) |
-| **Total** | 384 | 25 | 92 | 37 | 194/198 (98%) | 137/145 (94%) |
+| Lightroom Classic extras | 30 | 9 | 40 | 9 | — | 20/21 (95%) |
+| **Total** | 385 | 25 | 91 | 37 | 194/198 (98%) | 137/145 (94%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **79.1%** of 501 in-scope rows — P0 99.0% of 198 · P1 96.2% of 145 · P2 38.6% of 158.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **79.3%** of 501 in-scope rows — P0 99.0% of 198 · P1 96.2% of 145 · P2 39.2% of 158.
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -726,7 +726,7 @@ From `08-lightroom-classic-extras.md` (Classic-only features) and part 2 of `06-
 | LRC-MAP-VIEW | Map view | P2 | ⬜ | | |
 | LRC-MAP-GEOTAG | Drag photos onto the map | P2 | ⬜ | | |
 | LRC-MAP-LOCATIONS | Saved locations | P2 | ⬜ | | |
-| LRC-MAP-TRACKLOG | GPS track logs | P2 | ⬜ | | |
+| LRC-MAP-TRACKLOG | GPS track logs | P2 | ✅ | `cmd:photo.autoTagTracklog`, `cmd:photo.tagFromTracklog`, `crates/meta/src/gpx.rs` | Photo ▸ Auto-Tag from Tracklog…: a GPX 1.0 / 1.1 track log sets the GPS of the selected photos by capture time — interpolated between the points of a track segment, else the nearest point within `maxGap` (10 min); never across segment breaks. The camera's time zone comes from the photo (Exif offset) or is asked for; photos that already have a location keep it unless `replace`; `dryRun` previews; one undo step. No track drawn on a map (no Map module) |
 | LRC-MAP-FILTER | Location filter bar | P2 | ⬜ | | |
 | LRC-MAP-REVGEO | Reverse geocoding | OOS | 🚫 | | |
 | LRC-BOOK-SETTINGS | Book settings | P2 | ⬜ | | |

@@ -178,6 +178,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "app.showInFinder",
             "dialog.rename",
             "dialog.captureTime",
+            "photo.tagFromTracklog",
             "---",
             "photo.delete",
         ],
@@ -926,6 +927,40 @@ mod tests {
         run_item(&mut app, "photo.locate", json!({"path": dir.join("one-renamed.png").to_string_lossy()})).unwrap();
         let p = app.session.catalog.photo(id).unwrap();
         assert_eq!(p.file_name, "one-renamed.png");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn auto_tag_from_tracklog() {
+        let dir = std::env::temp_dir().join(format!("lc-ui-tracklog-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let gpx = dir.join("walk.gpx");
+        std::fs::write(
+            &gpx,
+            r#"<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>
+                <trkpt lat="46.0" lon="7.0"><time>2026-05-01T10:00:00Z</time></trkpt>
+                <trkpt lat="46.002" lon="7.004"><time>2026-05-01T10:02:00Z</time></trkpt>
+            </trkseg></trk></gpx>"#,
+        )
+        .unwrap();
+        let mut app = app();
+        let id = app.session.visible()[0].0;
+        app.session.execute("library.select", &json!({"ids": [id]})).unwrap();
+        app.session.execute("photo.setCaptureTime", &json!({"time": "2026-05-01T12:01:00", "each": true})).unwrap();
+        app.session.execute("photo.setMeta", &json!({"gps": null})).unwrap();
+        // in the Photo menu; without a file dialog (headless) it is disabled
+        let photo_menu = menu_bar(&app).into_iter().find(|(t, _)| t == "Photo").unwrap().1;
+        let Some(MenuNode::Item { enabled, .. }) = find(&photo_menu, "photo.tagFromTracklog") else { panic!("not in the Photo menu") };
+        assert!(!enabled);
+        // a file without an offset asks for the camera's time zone; confirming runs the tagging
+        run_item(&mut app, "photo.tagFromTracklog", json!({"path": gpx.to_string_lossy()})).unwrap();
+        let Some(crate::state::Dialog::TextPrompt { value, .. }) = &mut app.ui.dialog else { panic!("no time-zone prompt") };
+        *value = " +02:00 ".into();
+        let d = app.ui.dialog.take().unwrap();
+        let r = crate::panels::dialogs::confirm_dialog(&mut app, &d).unwrap();
+        assert_eq!(r["tagged"], 1, "{r}");
+        let p = app.session.catalog.photo(lightcraft_engine::catalog::PhotoId(id)).unwrap();
+        assert_eq!(p.meta.gps, Some((46.001, 7.002)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

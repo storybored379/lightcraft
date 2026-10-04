@@ -6,12 +6,14 @@
 //! - [`embedded`] / [`jpeg_segments`] / [`png_chunks`] / [`webp_chunks`] — locate Exif / XMP / ICC / IPTC blocks.
 //! - [`parse_xmp`] / [`write_xmp`] — XMP packets (interchange fields + the opaque `lc:settings` JSON).
 //! - [`parse_iptc`] — IPTC-IIM record 2 datasets.
+//! - [`parse_gpx`] — GPS track logs (GPX) for geotagging by capture time.
 //! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw).
 #![forbid(unsafe_code)]
 
 mod container;
 mod datetime;
 mod exif;
+mod gpx;
 mod iptc;
 pub mod tags;
 mod xmp;
@@ -19,6 +21,7 @@ mod xmp;
 pub use container::{Embedded, embedded, jpeg_segments, png_chunks, webp_chunks};
 pub use datetime::DateTime;
 pub use exif::{from_tiff, read_exif, strip_exif_header, try_read_exif, write_exif};
+pub use gpx::{GpxError, Match, TrackPoint, Tracklog, parse_gpx};
 pub use iptc::parse_iptc;
 pub use lightcraft_geom::Orientation;
 pub use tags::{TagRow, file_tag_rows, tag_rows};

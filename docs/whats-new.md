@@ -16,6 +16,7 @@
 - Import: copy to any folder, by day / by month / one folder, rename on import, metadata preset, Copy as DNG.
 - Watched-folder auto import; Convert to DNG; Duplicate; Build Standard / 1:1 / Smart Previews.
 - Export file names use the Rename Photos tokens ({title}, {seq:2}, {date:%Y-%m-%d}…), plus new {num}, {folder}, {lens}, {iso}, {rating}, {creator}.
+- Auto-Tag from Tracklog: GPS locations for your photos from a GPX track log, matched by capture time.
 
 ### Editing
 - Auto Sync: edits apply to every selected photo. Auto B&W mix. Automatic versions.
