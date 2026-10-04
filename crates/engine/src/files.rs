@@ -33,6 +33,9 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         title: m.title.clone().unwrap_or_default(),
         caption: m.caption.clone().unwrap_or_default(),
         copyright: m.copyright.clone().unwrap_or_default(),
+        copyright_status: lightcraft_catalog::CopyrightStatus::from_marked(m.copyright_marked),
+        usage_terms: m.usage_terms.clone().unwrap_or_default(),
+        copyright_url: m.copyright_url.clone().unwrap_or_default(),
         creator: m.artist.clone().unwrap_or_default(),
         keywords: m.keywords.clone(),
     };

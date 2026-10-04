@@ -420,6 +420,13 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
         state: first("photoshop:State"),
         country: first("photoshop:Country"),
         copyright: first("dc:rights"),
+        copyright_marked: first("xmpRights:Marked").and_then(|s| match s.to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        }),
+        usage_terms: first("xmpRights:UsageTerms"),
+        copyright_url: first("xmpRights:WebStatement"),
         rating: num("xmp:Rating").map(|v| v.round().clamp(-1.0, 5.0) as i8),
         label: first("xmp:Label"),
         ..Default::default()
@@ -519,6 +526,8 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     push("photoshop:City", meta.city.clone());
     push("photoshop:State", meta.state.clone());
     push("photoshop:Country", meta.country.clone());
+    push("xmpRights:Marked", meta.copyright_marked.map(|m| if m { "True" } else { "False" }.to_string()));
+    push("xmpRights:WebStatement", meta.copyright_url.clone());
     if let Some(g) = meta.gps {
         push("exif:GPSLatitude", Some(fmt_gps_coord(g.latitude, 'N', 'S')));
         push("exif:GPSLongitude", Some(fmt_gps_coord(g.longitude, 'E', 'W')));
@@ -566,6 +575,7 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     array(&mut x, "Iptc4xmpCore:AltTextAccessibility", "Alt", &one(&meta.alt_text), true);
     array(&mut x, "Iptc4xmpCore:ExtDescrAccessibility", "Alt", &one(&meta.extended_description), true);
     array(&mut x, "dc:rights", "Alt", &one(&meta.copyright), true);
+    array(&mut x, "xmpRights:UsageTerms", "Alt", &one(&meta.usage_terms), true);
     array(&mut x, "dc:creator", "Seq", &one(&meta.artist), false);
     array(&mut x, "dc:subject", "Bag", &meta.keywords, false);
     array(&mut x, "lr:hierarchicalSubject", "Bag", &meta.hierarchical_keywords, false);
@@ -620,6 +630,9 @@ mod tests {
             height: Some(6000),
             artist: Some("Ann \"Photo\" Lee".into()),
             copyright: Some("© 2022".into()),
+            copyright_marked: Some(true),
+            usage_terms: Some("Editorial use only; no <resale>".into()),
+            copyright_url: Some("https://example.com/licence?a=1&b=2".into()),
             title: Some("Tïtle".into()),
             caption: Some("Line one\nline two".into()),
             alt_text: Some("A tree by the sea".into()),
@@ -681,6 +694,32 @@ mod tests {
         assert!((g.latitude - 10.5).abs() < 1e-9);
         assert!((g.longitude + 20.26).abs() < 1e-9);
         assert_eq!(d.properties["dc:title"], vec!["Title & more é".to_string(), "Titel".to_string()]);
+    }
+
+    /// Copyright status, usage terms and info URL (XMP Rights Management schema): written as
+    /// `xmpRights:Marked` (Boolean), `xmpRights:UsageTerms` (Lang Alt) and `xmpRights:WebStatement` (URI).
+    #[test]
+    fn rights_management_fields() {
+        let m = Metadata { copyright_marked: Some(false), usage_terms: Some("CC0".into()), ..Default::default() };
+        let x = write_xmp(&m, None);
+        assert!(x.contains("<xmpRights:Marked>False</xmpRights:Marked>"), "{x}");
+        assert!(x.contains("<xmpRights:UsageTerms>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">CC0</rdf:li>"), "{x}");
+        assert!(!x.contains("WebStatement"), "unset fields are left out");
+        assert_eq!(parse_xmp(&x).unwrap().metadata, m);
+        // attribute form, other prefixes; anything but True / False is "unknown"
+        let read = |marked: &str| {
+            let x = format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about="" xmlns:r="http://ns.adobe.com/xap/1.0/rights/" r:Marked="{marked}" r:WebStatement="https://example.org/c"/>
+                </rdf:RDF></x:xmpmeta>"#
+            );
+            parse_xmp(&x).unwrap().metadata
+        };
+        assert_eq!(read("True").copyright_marked, Some(true));
+        assert_eq!(read("false").copyright_marked, Some(false));
+        assert_eq!(read("").copyright_marked, None);
+        assert_eq!(read("maybe").copyright_marked, None);
+        assert_eq!(read("True").copyright_url.as_deref(), Some("https://example.org/c"));
     }
 
     #[test]

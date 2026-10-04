@@ -497,3 +497,82 @@ fn sidecar_capture_time_fills_in_when_the_file_has_none() {
     let _ = std::fs::remove_dir_all(&src);
     let _ = std::fs::remove_dir_all(&lib);
 }
+
+/// Copyright status, rights usage terms and copyright info URL: edited with `photo.setMeta` (one
+/// undo step), copied / pasted, kept in metadata presets, written to the sidecar as XMP Rights
+/// Management fields and read back on a fresh import.
+#[test]
+fn copyright_status_usage_terms_and_url_round_trip() {
+    use lightcraft_catalog::CopyrightStatus;
+    let src = temp_dir("rights-src");
+    let lib = temp_dir("rights-lib");
+    write_png(&src.join("a.png"), 1);
+    write_png(&src.join("b.png"), 2);
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    let id = |s: &Session, name: &str| s.catalog.photos().find(|p| p.file_name == name).unwrap().id;
+    let (a, b) = (id(&s, "a.png"), id(&s, "b.png"));
+    let meta = |s: &Session, id: PhotoId| s.catalog.photo(id).unwrap().meta.clone();
+    assert_eq!(meta(&s, a).copyright_status, CopyrightStatus::Unknown);
+    s.execute("library.select", &json!({"ids": [a.0]})).unwrap();
+    s.execute(
+        "photo.setMeta",
+        &json!({"copyright": "© 2026 A. Person", "copyrightStatus": "copyrighted", "usageTerms": "Editorial use only", "copyrightUrl": "https://example.com/rights"}),
+    )
+    .unwrap();
+    let m = meta(&s, a);
+    assert_eq!(
+        (m.copyright_status, m.usage_terms.as_str(), m.copyright_url.as_str()),
+        (CopyrightStatus::Copyrighted, "Editorial use only", "https://example.com/rights")
+    );
+    assert!(s.execute("photo.setMeta", &json!({"copyrightStatus": "maybe"})).is_err());
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(meta(&s, a).copyright_status, CopyrightStatus::Unknown, "one undo step");
+    s.execute("edit.redo", &json!({})).unwrap();
+    // copy → paste onto b
+    let clip = s.execute("photo.copyMetadata", &json!({})).unwrap();
+    assert_eq!(clip["copyrightStatus"], "copyrighted");
+    s.execute("photo.pasteMetadata", &json!({"ids": [b.0], "fields": ["copyrightStatus", "usageTerms"]})).unwrap();
+    let mb = meta(&s, b);
+    assert_eq!((mb.copyright_status, mb.usage_terms.as_str(), mb.copyright_url.as_str()), (CopyrightStatus::Copyrighted, "Editorial use only", ""));
+    // a metadata preset from the active photo carries the copyright fields; applying it sets them
+    s.execute("metadata.savePreset", &json!({"name": "Rights"})).unwrap();
+    let presets = s.execute("metadata.presets", &json!({})).unwrap();
+    assert_eq!(presets[0]["fields"]["copyrightStatus"], "copyrighted", "{presets}");
+    assert_eq!(presets[0]["fields"]["copyrightUrl"], "https://example.com/rights");
+    s.execute("photo.setMeta", &json!({"ids": [b.0], "copyrightStatus": "publicDomain", "usageTerms": ""})).unwrap();
+    s.execute("metadata.applyPreset", &json!({"name": "Rights", "ids": [b.0]})).unwrap();
+    let mb = meta(&s, b);
+    assert_eq!((mb.copyright_status, mb.copyright_url.as_str()), (CopyrightStatus::Copyrighted, "https://example.com/rights"));
+    assert!(s.execute("metadata.savePreset", &json!({"name": "Bad", "fields": {"copyrightStatus": "sort of"}})).is_err());
+    // b becomes public domain; smart-album rule on the status
+    s.execute("photo.setMeta", &json!({"ids": [b.0], "copyrightStatus": "public domain"})).unwrap();
+    let r = s
+        .execute(
+            "album.createSmart",
+            &json!({"name": "PD", "rules": {"ruleSet": {"rules": [{"field": "copyrightStatus", "op": "is", "value": "publicDomain"}]}}}),
+        )
+        .unwrap();
+    assert_eq!(r["count"], 1, "{r}");
+    // sidecars: XMP Rights Management fields, read back by a fresh library
+    s.execute("photo.saveMetadataToFile", &json!({"ids": [a.0, b.0]})).unwrap();
+    let xmp = std::fs::read_to_string(src.join("a.xmp")).unwrap();
+    assert!(xmp.contains("<xmpRights:Marked>True</xmpRights:Marked>"), "{xmp}");
+    assert!(xmp.contains("<xmpRights:WebStatement>https://example.com/rights</xmpRights:WebStatement>"), "{xmp}");
+    assert!(std::fs::read_to_string(src.join("b.xmp")).unwrap().contains("<xmpRights:Marked>False</xmpRights:Marked>"));
+    let expect_a = meta(&s, a);
+    drop(s);
+    std::fs::remove_dir_all(&lib).unwrap();
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    let ma = meta(&s, id(&s, "a.png"));
+    assert_eq!(
+        (ma.copyright.as_str(), ma.copyright_status, ma.usage_terms.as_str(), ma.copyright_url.as_str()),
+        (expect_a.copyright.as_str(), CopyrightStatus::Copyrighted, "Editorial use only", "https://example.com/rights")
+    );
+    assert_eq!(meta(&s, id(&s, "b.png")).copyright_status, CopyrightStatus::PublicDomain);
+    let _ = std::fs::remove_dir_all(&src);
+    let _ = std::fs::remove_dir_all(&lib);
+}

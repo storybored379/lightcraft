@@ -1,7 +1,7 @@
 //! Metadata presets: named sets of descriptive fields (copyright, creator, place, keywords…)
 //! applied to photos in one step or to every import (Settings → Import). Saved with the library.
 
-use lightcraft_catalog::Meta;
+use lightcraft_catalog::{CopyrightStatus, Meta};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -9,7 +9,20 @@ use super::{CommandSpec, always, bad, cmd, str_param};
 use crate::{Result, Session};
 
 /// The fields a metadata preset can hold (photo.setMeta names).
-pub const FIELDS: &[&str] = &["title", "caption", "copyright", "creator", "location", "city", "state", "country", "keywords"];
+pub const FIELDS: &[&str] = &[
+    "title",
+    "caption",
+    "copyright",
+    "copyrightStatus",
+    "usageTerms",
+    "copyrightUrl",
+    "creator",
+    "location",
+    "city",
+    "state",
+    "country",
+    "keywords",
+];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MetadataPreset {
@@ -23,6 +36,8 @@ fn text_field<'a>(m: &'a mut Meta, k: &str) -> Option<&'a mut String> {
         "title" => &mut m.title,
         "caption" => &mut m.caption,
         "copyright" => &mut m.copyright,
+        "usageTerms" => &mut m.usage_terms,
+        "copyrightUrl" => &mut m.copyright_url,
         "creator" => &mut m.creator,
         "location" => &mut m.location,
         "city" => &mut m.city,
@@ -35,7 +50,11 @@ fn text_field<'a>(m: &'a mut Meta, k: &str) -> Option<&'a mut String> {
 /// Apply preset `fields` to `m`: text fields replace, keywords are added.
 pub fn apply_to(m: &mut Meta, fields: &Value) {
     for (k, v) in fields.as_object().into_iter().flatten() {
-        if k == "keywords" {
+        if k == "copyrightStatus" {
+            if let Some(st) = v.as_str().and_then(CopyrightStatus::parse) {
+                m.copyright_status = st;
+            }
+        } else if k == "keywords" {
             for kw in v.as_array().into_iter().flatten().filter_map(Value::as_str) {
                 if !m.keywords.iter().any(|x| x.eq_ignore_ascii_case(kw)) {
                     m.keywords.push(kw.to_string());
@@ -59,6 +78,9 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
             if let Some(k) = o.keys().find(|k| !FIELDS.contains(&k.as_str())) {
                 return Err(bad(C, format!("unknown field `{k}` ({})", FIELDS.join(", "))));
             }
+            if let Some(v) = o.get("copyrightStatus").filter(|v| v.as_str().and_then(CopyrightStatus::parse).is_none()) {
+                return Err(bad(C, format!("copyrightStatus {v}: unknown, copyrighted or publicDomain")));
+            }
             Value::Object(o.clone())
         }
         Some(_) => return Err(bad(C, "`fields` must be an object")),
@@ -66,16 +88,23 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         None => {
             let id = s.active().ok_or_else(|| bad(C, "no `fields` and no active photo"))?;
             let mut m = s.catalog.photo(id).ok_or_else(|| bad(C, "no photo"))?.meta.clone();
-            let only: Vec<String> = p
-                .get("only")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
-                .unwrap_or_else(|| ["copyright", "creator", "location", "city", "state", "country"].map(String::from).to_vec());
+            let only: Vec<String> =
+                p.get("only").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_else(
+                    || {
+                        ["copyright", "copyrightStatus", "usageTerms", "copyrightUrl", "creator", "location", "city", "state", "country"]
+                            .map(String::from)
+                            .to_vec()
+                    },
+                );
             let mut o = Map::new();
             for k in only.iter().filter(|k| FIELDS.contains(&k.as_str())) {
                 if k == "keywords" {
                     if !m.keywords.is_empty() {
                         o.insert(k.clone(), json!(m.keywords));
+                    }
+                } else if k == "copyrightStatus" {
+                    if !m.copyright_status.is_unknown() {
+                        o.insert(k.clone(), json!(m.copyright_status.id()));
                     }
                 } else if let Some(v) = text_field(&mut m, k).filter(|v| !v.trim().is_empty()) {
                     o.insert(k.clone(), json!(v.clone()));
@@ -136,7 +165,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save Metadata Preset",
             [],
             None,
-            "{name, fields?: {copyright?, creator?, title?, caption?, location?, city?, state?, country?, keywords?: [..]}, only?: [field] (from the active photo when `fields` is absent; default copyright, creator, place)} — adds or replaces",
+            "{name, fields?: {copyright?, copyrightStatus?: unknown|copyrighted|publicDomain, usageTerms?, copyrightUrl?, creator?, title?, caption?, location?, city?, state?, country?, keywords?: [..]}, only?: [field] (from the active photo when `fields` is absent; default the copyright fields, creator, place)} — adds or replaces",
             always,
             save
         ),

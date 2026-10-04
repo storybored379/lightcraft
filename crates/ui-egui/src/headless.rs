@@ -735,7 +735,7 @@ mod tests {
         let t = Duration::from_secs(10);
         h.request("ui.set", json!({"view": "detail", "right": "info"}), t);
         h.settle(SETTLE);
-        for (key, text) in [("altText", "A lake at dawn"), ("city", "Zermatt")] {
+        for (key, text) in [("altText", "A lake at dawn"), ("usageTerms", "Editorial use only"), ("city", "Zermatt")] {
             let r = h.request("ui.clickWidget", json!({"id": format!("field:{key}")}), t);
             assert_eq!(r["ok"], true, "{r}");
             h.request("ui.key", json!({"key": "A", "cmd": true}), t);
@@ -748,6 +748,10 @@ mod tests {
         }
         let m = &h.app.session.catalog.photo(h.app.session.active().unwrap()).unwrap().meta;
         assert_eq!((m.alt_text.as_str(), m.city.as_str()), ("A lake at dawn", "Zermatt"));
+        assert_eq!(m.usage_terms, "Editorial use only");
+        // the copyright status picker is on the panel too
+        let w = h.request("ui.widgets", json!({"filter": "copyrightStatus"}), t);
+        assert!(w["result"].to_string().contains("field:copyrightStatus"), "{w}");
     }
 
     /// Local: a folder's photos show without joining the library; the breadcrumb, Include

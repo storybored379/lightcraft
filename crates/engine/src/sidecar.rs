@@ -74,6 +74,10 @@ pub struct SidecarData {
     pub title: Option<String>,
     pub caption: Option<String>,
     pub copyright: Option<String>,
+    /// `xmpRights:Marked`: `Some(true)` copyrighted, `Some(false)` public domain.
+    pub copyright_marked: Option<bool>,
+    pub usage_terms: Option<String>,
+    pub copyright_url: Option<String>,
     pub creator: Option<String>,
     pub location: Option<String>,
     pub city: Option<String>,
@@ -105,6 +109,9 @@ pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, S
         title: m.title.clone(),
         caption: m.caption.clone(),
         copyright: m.copyright.clone(),
+        copyright_marked: m.copyright_marked,
+        usage_terms: m.usage_terms.clone(),
+        copyright_url: m.copyright_url.clone(),
         creator: m.artist.clone(),
         location: lc("location").or_else(|| m.sublocation.clone()),
         city: m.city.clone(),
@@ -162,6 +169,8 @@ pub fn merge_into(p: &mut Photo, sc: &SidecarData, now: &str) -> bool {
         (&sc.title, &mut m.title),
         (&sc.caption, &mut m.caption),
         (&sc.copyright, &mut m.copyright),
+        (&sc.usage_terms, &mut m.usage_terms),
+        (&sc.copyright_url, &mut m.copyright_url),
         (&sc.creator, &mut m.creator),
         (&sc.location, &mut m.location),
         (&sc.city, &mut m.city),
@@ -173,6 +182,9 @@ pub fn merge_into(p: &mut Photo, sc: &SidecarData, now: &str) -> bool {
         if let Some(v) = src {
             *dst = v.clone();
         }
+    }
+    if let Some(marked) = sc.copyright_marked {
+        m.copyright_status = lightcraft_catalog::CopyrightStatus::from_marked(Some(marked));
     }
     if let Some(k) = &sc.keywords {
         m.keywords = k.clone();
@@ -222,6 +234,9 @@ pub fn sidecar_packet(p: &Photo, cat: &lightcraft_catalog::Catalog) -> String {
         state: nz(&p.meta.state),
         country: nz(&p.meta.country),
         copyright: nz(&p.meta.copyright),
+        copyright_marked: p.meta.copyright_status.marked(),
+        usage_terms: nz(&p.meta.usage_terms),
+        copyright_url: nz(&p.meta.copyright_url),
         artist: nz(&p.meta.creator),
         keywords: p.meta.keywords.clone(),
         rating: Some(p.rating.min(5) as i8),

@@ -20,6 +20,8 @@ What we write (standard namespaces, so other tools can read the metadata):
 | Rating 0–5 | `xmp:Rating` |
 | Colour label | `xmp:Label` (`Red`, `Yellow`, `Green`, `Blue`, `Purple`) |
 | Title / caption / copyright / creator | `dc:title` / `dc:description` / `dc:rights` / `dc:creator` |
+| Copyright status | `xmpRights:Marked` (`True` copyrighted, `False` public domain, absent = unknown) |
+| Rights usage terms / copyright info URL | `xmpRights:UsageTerms` / `xmpRights:WebStatement` |
 | Keywords | `dc:subject` |
 | Capture time, GPS | `exif:DateTimeOriginal`, `photoshop:DateCreated`, `exif:GPSLatitude`/`GPSLongitude` |
 | Pick / reject flag | `lc:flag` (`pick`, `reject`, `none`) |

@@ -1,7 +1,7 @@
 //! Library commands: view source, filter/sort, selection, ratings/flags/labels, rotate, delete,
 //! metadata, albums, import.
 
-use lightcraft_catalog::{Album, AlbumId, ColorLabel, Flag, GroupBy, Op, PhotoId, Sort, SortKey};
+use lightcraft_catalog::{Album, AlbumId, ColorLabel, CopyrightStatus, Flag, GroupBy, Op, PhotoId, Sort, SortKey};
 use serde_json::{Value, json};
 
 use super::{CommandSpec, always, bad, bool_or, cmd, has_active, has_selection, ok, str_param};
@@ -252,11 +252,12 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(query "library.devices", "Cameras and Cards", [], None, "{} → [{name, path (its DCIM folder), root}] — mounted volumes with a DCIM folder", always, |_, _| {
             Ok(serde_json::to_value(crate::devices::devices_now()).unwrap_or_default())
         }),
-        cmd!(query "photo.copyMetadata", "Copy Metadata", ["Photo"], None, "{} — title, caption, copyright, creator, location and keywords of the active photo", has_active, |s, _| {
+        cmd!(query "photo.copyMetadata", "Copy Metadata", ["Photo"], None, "{} — title, caption, copyright (notice, status, usage terms, info URL), creator, location and keywords of the active photo", has_active, |s, _| {
             let id = s.active().ok_or_else(|| bad("photo.copyMetadata", "no active photo"))?;
             let m = &s.catalog.photo(id).ok_or_else(|| bad("photo.copyMetadata", "no photo"))?.meta;
             let v = json!({"title": m.title, "caption": m.caption, "altText": m.alt_text, "extendedDescription": m.extended_description,
-                "copyright": m.copyright, "creator": m.creator, "location": m.location, "city": m.city, "state": m.state, "country": m.country,
+                "copyright": m.copyright, "copyrightStatus": m.copyright_status.id(), "usageTerms": m.usage_terms, "copyrightUrl": m.copyright_url,
+                "creator": m.creator, "location": m.location, "city": m.city, "state": m.state, "country": m.country,
                 "keywords": m.keywords});
             s.meta_clipboard = Some(v.clone());
             Ok(v)
@@ -266,7 +267,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Paste Metadata",
             ["Photo"],
             None,
-            "{ids?, fields?: [title|caption|copyright|creator|location|keywords] (default: all copied)}",
+            "{ids?, fields?: [title|caption|copyright|copyrightStatus|usageTerms|copyrightUrl|creator|location|keywords] (default: all copied)}",
             has_selection,
             |s, p| {
                 let c = "photo.pasteMetadata";
@@ -370,7 +371,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Edit Info",
             [],
             None,
-            "{ids?, title?, caption?, altText?, extendedDescription?, copyright?, creator?, location?, city?, state?, country?, gps?: \"lat, lon\" | [lat, lon] | null, keywords?: [..], addKeywords?: [..], removeKeywords?: [..]}",
+            "{ids?, title?, caption?, altText?, extendedDescription?, copyright?, copyrightStatus?: unknown|copyrighted|publicDomain, usageTerms?, copyrightUrl?, creator?, location?, city?, state?, country?, gps?: \"lat, lon\" | [lat, lon] | null, keywords?: [..], addKeywords?: [..], removeKeywords?: [..]}",
             has_selection,
             |s, p| {
                 let strs =
@@ -390,6 +391,13 @@ pub fn specs() -> Vec<CommandSpec> {
                     },
                     Some(_) => return Err(bad("photo.setMeta", "gps is \"lat, lon\", [lat, lon] or null")),
                 };
+                let status = match str_param(p, "copyrightStatus") {
+                    Some(t) => Some(
+                        CopyrightStatus::parse(t)
+                            .ok_or_else(|| bad("photo.setMeta", format!("copyrightStatus `{t}`: unknown, copyrighted or publicDomain")))?,
+                    ),
+                    None => None,
+                };
                 let mut ops = Vec::new();
                 for id in targets {
                     let Some(ph) = s.catalog.photo(id) else { continue };
@@ -397,10 +405,15 @@ pub fn specs() -> Vec<CommandSpec> {
                     if let Some(g) = gps {
                         m.gps = g;
                     }
+                    if let Some(st) = status {
+                        m.copyright_status = st;
+                    }
                     for (k, field) in [
                         ("title", &mut m.title),
                         ("caption", &mut m.caption),
                         ("copyright", &mut m.copyright),
+                        ("usageTerms", &mut m.usage_terms),
+                        ("copyrightUrl", &mut m.copyright_url),
                         ("creator", &mut m.creator),
                         ("location", &mut m.location),
                         ("city", &mut m.city),

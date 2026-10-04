@@ -83,6 +83,12 @@ pub struct Metadata {
     // descriptive / user
     pub artist: Option<String>,
     pub copyright: Option<String>,
+    /// Copyright status (`xmpRights:Marked`): `true` = copyrighted, `false` = public domain, `None` = unknown.
+    pub copyright_marked: Option<bool>,
+    /// Rights usage terms (`xmpRights:UsageTerms`).
+    pub usage_terms: Option<String>,
+    /// Copyright info URL (`xmpRights:WebStatement`).
+    pub copyright_url: Option<String>,
     pub title: Option<String>,
     pub caption: Option<String>,
     /// Accessibility text (`Iptc4xmpCore:AltTextAccessibility`).
@@ -142,6 +148,9 @@ impl Metadata {
             height,
             artist,
             copyright,
+            copyright_marked,
+            usage_terms,
+            copyright_url,
             title,
             caption,
             alt_text,
@@ -164,7 +173,7 @@ impl Metadata {
     /// Replace the user-editable fields (rating, label, title, caption, artist, copyright, keywords, GPS) with
     /// `other`'s where `other` has them — the XMP-over-EXIF precedence rule.
     pub fn overlay_user_fields(&mut self, other: &Metadata) {
-        overlay!(self, other, rating, label, title, caption, artist, copyright, gps);
+        overlay!(self, other, rating, label, title, caption, artist, copyright, copyright_marked, usage_terms, copyright_url, gps);
         if !other.keywords.is_empty() {
             self.keywords = other.keywords.clone();
         }

@@ -93,6 +93,65 @@ pub enum Source {
     Demo { scene: u32 },
 }
 
+/// Copyright status (IPTC / XMP Rights Management `xmpRights:Marked`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CopyrightStatus {
+    /// Not stated (no `xmpRights:Marked`).
+    #[default]
+    Unknown,
+    /// `xmpRights:Marked` = True.
+    Copyrighted,
+    /// `xmpRights:Marked` = False.
+    PublicDomain,
+}
+
+impl CopyrightStatus {
+    pub const ALL: [CopyrightStatus; 3] = [CopyrightStatus::Unknown, CopyrightStatus::Copyrighted, CopyrightStatus::PublicDomain];
+    /// `unknown` / `copyrighted` / `publicDomain` (also `public domain`, `public-domain`).
+    pub fn parse(s: &str) -> Option<CopyrightStatus> {
+        match s.trim().to_ascii_lowercase().replace([' ', '-', '_'], "").as_str() {
+            "unknown" | "" => Some(CopyrightStatus::Unknown),
+            "copyrighted" => Some(CopyrightStatus::Copyrighted),
+            "publicdomain" => Some(CopyrightStatus::PublicDomain),
+            _ => None,
+        }
+    }
+    /// The id used by commands (`photo.setMeta`'s `copyrightStatus`).
+    pub fn id(self) -> &'static str {
+        match self {
+            CopyrightStatus::Unknown => "unknown",
+            CopyrightStatus::Copyrighted => "copyrighted",
+            CopyrightStatus::PublicDomain => "publicDomain",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            CopyrightStatus::Unknown => "Unknown",
+            CopyrightStatus::Copyrighted => "Copyrighted",
+            CopyrightStatus::PublicDomain => "Public Domain",
+        }
+    }
+    /// As `xmpRights:Marked`: `Some(true)` copyrighted, `Some(false)` public domain.
+    pub fn marked(self) -> Option<bool> {
+        match self {
+            CopyrightStatus::Unknown => None,
+            CopyrightStatus::Copyrighted => Some(true),
+            CopyrightStatus::PublicDomain => Some(false),
+        }
+    }
+    pub fn from_marked(m: Option<bool>) -> CopyrightStatus {
+        match m {
+            None => CopyrightStatus::Unknown,
+            Some(true) => CopyrightStatus::Copyrighted,
+            Some(false) => CopyrightStatus::PublicDomain,
+        }
+    }
+    pub fn is_unknown(&self) -> bool {
+        *self == CopyrightStatus::Unknown
+    }
+}
+
 /// Descriptive + capture metadata.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -115,6 +174,13 @@ pub struct Meta {
     pub alt_text: String,
     pub extended_description: String,
     pub copyright: String,
+    /// Copyright status, rights usage terms and copyright info URL (IPTC Core rights fields).
+    #[serde(skip_serializing_if = "CopyrightStatus::is_unknown")]
+    pub copyright_status: CopyrightStatus,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub usage_terms: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub copyright_url: String,
     pub creator: String,
     pub keywords: Vec<String>,
 }

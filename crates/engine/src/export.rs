@@ -853,7 +853,16 @@ fn parse_shutter(s: &str) -> Option<f64> {
 pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> Option<Metadata> {
     let m = &photo.meta;
     let text = |s: &str| (!s.trim().is_empty()).then(|| s.to_string());
-    let mut out = Metadata { copyright: text(&m.copyright), artist: text(&m.creator), software: Some("LightCraft".into()), ..Default::default() };
+    // copyright info (also under "copyright only"): notice, creator, status, usage terms, info URL
+    let mut out = Metadata {
+        copyright: text(&m.copyright),
+        copyright_marked: m.copyright_status.marked(),
+        usage_terms: text(&m.usage_terms),
+        copyright_url: text(&m.copyright_url),
+        artist: text(&m.creator),
+        software: Some("LightCraft".into()),
+        ..Default::default()
+    };
     match o.metadata {
         MetadataPolicy::None => return None,
         MetadataPolicy::Copyright => return Some(out),
@@ -1169,6 +1178,9 @@ mod tests {
         let mut p = Photo::new(PhotoId(1), Source::Demo { scene: 0 }, "a.jpg", "jpeg", 10, 10, "2026-09-30T00:00:00");
         p.meta.camera = "Synthetic X2".into();
         p.meta.copyright = "(c) Me".into();
+        p.meta.copyright_status = lightcraft_catalog::CopyrightStatus::Copyrighted;
+        p.meta.usage_terms = "Editorial use only".into();
+        p.meta.copyright_url = "https://example.com/rights".into();
         p.meta.shutter = "1/250".into();
         p.meta.gps = Some((43.0, -110.0));
         let all = export_metadata(&p, &ExportOptions::default()).unwrap();
@@ -1180,12 +1192,19 @@ mod tests {
         assert!(m.model.is_none() && m.gps.is_none() && m.copyright.is_some());
         let c = export_metadata(&p, &ExportOptions { metadata: MetadataPolicy::Copyright, ..Default::default() }).unwrap();
         assert!(c.model.is_none() && c.gps.is_none() && c.copyright.as_deref() == Some("(c) Me"));
+        // "copyright only" keeps all the copyright info: status, usage terms, info URL
+        assert_eq!(
+            (c.copyright_marked, c.usage_terms.as_deref(), c.copyright_url.as_deref()),
+            (Some(true), Some("Editorial use only"), Some("https://example.com/rights"))
+        );
         assert!(export_metadata(&p, &ExportOptions { metadata: MetadataPolicy::None, ..Default::default() }).is_none());
         // embedded and readable back from the JPEG
         let jpg = encode_with_metadata(&test_image(), &ExportOptions::default(), Some(&all)).unwrap();
         let back = lightcraft_meta::extract(&jpg);
         assert_eq!(back.model.as_deref(), Some("Synthetic X2"));
         assert_eq!(back.copyright.as_deref(), Some("(c) Me"));
+        assert_eq!((back.copyright_marked, back.usage_terms.as_deref()), (Some(true), Some("Editorial use only")));
+        assert_eq!(back.copyright_url.as_deref(), Some("https://example.com/rights"));
         assert!(back.gps.is_some());
     }
 

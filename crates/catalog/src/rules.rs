@@ -70,6 +70,7 @@ pub const FIELDS: &[(&str, &str, Kind)] = &[
     ("location", "Location", Kind::Text),
     ("creator", "Creator", Kind::Text),
     ("copyright", "Copyright", Kind::Text),
+    ("copyrightStatus", "Copyright Status", Kind::Choice(&["copyrighted", "publicDomain", "unknown"])),
     ("captureDate", "Capture Date", Kind::Date),
     ("importDate", "Import Date", Kind::Date),
     ("editDate", "Edit Date", Kind::Date),
@@ -311,6 +312,10 @@ impl Rule {
             "location" => text(&[m.location.as_str(), &m.city, &m.state, &m.country].join(" ")),
             "creator" => text(&m.creator),
             "copyright" => text(&m.copyright),
+            "copyrightStatus" => {
+                let want = crate::CopyrightStatus::parse(&want);
+                (want == Some(m.copyright_status)) == (op == "is")
+            }
             "captureDate" => date_op(op, p.captured.as_deref(), value),
             "importDate" => date_op(op, Some(&p.imported), value),
             "editDate" => date_op(op, p.edited.as_deref(), value),
@@ -449,6 +454,13 @@ mod tests {
         yes(json!({"rules": [{"field": "captureDate", "op": "between", "value": ["2026-08-01", "2026-08"]}]}));
         no(json!({"rules": [{"field": "captureDate", "op": "after", "value": "2026-08"}]}));
         yes(json!({"rules": [{"field": "kind", "op": "isNot", "value": "video"}, {"field": "edited", "op": "is", "value": false}]}));
+        // copyright status (unknown until set)
+        yes(json!({"rules": [{"field": "copyrightStatus", "op": "is", "value": "unknown"}]}));
+        no(json!({"rules": [{"field": "copyrightStatus", "op": "is", "value": "copyrighted"}]}));
+        let mut pd = photo(2);
+        pd.meta.copyright_status = crate::CopyrightStatus::PublicDomain;
+        assert!(rs(json!({"rules": [{"field": "copyrightStatus", "op": "is", "value": "publicDomain"}]})).matches(&pd, &cat));
+        assert!(rs(json!({"rules": [{"field": "copyrightStatus", "op": "isNot", "value": "copyrighted"}]})).matches(&pd, &cat));
         // nested: rating ≥ 4 and (label is blue or keywords contain food)
         yes(json!({"rules": [{"field": "rating", "op": "gte", "value": 4}, {"group": {"match": "any", "rules": [
             {"field": "label", "op": "is", "value": "blue"}, {"field": "keywords", "op": "contains", "value": "food"}]}}]}));

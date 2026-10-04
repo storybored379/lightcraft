@@ -435,6 +435,13 @@ fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             ("Alt Text", "altText", &m.alt_text, 2),
             ("Extended Description", "extendedDescription", &m.extended_description, 3),
             ("Copyright", "copyright", &m.copyright, 1),
+        ] {
+            meta_field(app, ui, label, key, value, lines);
+        }
+        copyright_status(app, ui, m.copyright_status);
+        for (label, key, value, lines) in [
+            ("Rights Usage Terms", "usageTerms", &m.usage_terms, 2),
+            ("Copyright Info URL", "copyrightUrl", &m.copyright_url, 1),
             ("Creator", "creator", &m.creator, 1),
         ] {
             meta_field(app, ui, label, key, value, lines);
@@ -599,6 +606,21 @@ fn human_size(bytes: u64) -> String {
 
 /// A labelled metadata text field: the typed text lives in egui memory while focused and is
 /// saved (photo.setMeta `key`) when the field loses focus.
+/// Copyright Status: Unknown / Copyrighted / Public Domain (`xmpRights:Marked`).
+fn copyright_status(app: &mut LightcraftApp, ui: &mut egui::Ui, current: lightcraft_catalog::CopyrightStatus) {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new("Copyright Status").size(11.5).color(t.text_dim));
+    let r = egui::ComboBox::from_id_salt("info-copyright-status").selected_text(current.label()).show_ui(ui, |ui| {
+        for st in lightcraft_catalog::CopyrightStatus::ALL {
+            if ui.selectable_label(st == current, st.label()).clicked() && st != current {
+                let _ = app.run("photo.setMeta", json!({"copyrightStatus": st.id()}));
+            }
+        }
+    });
+    register(ui.ctx(), "field:copyrightStatus", r.response.rect);
+    ui.add_space(6.0);
+}
+
 fn meta_field(app: &mut LightcraftApp, ui: &mut egui::Ui, label: &str, key: &str, value: &str, lines: usize) {
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(label).size(11.5).color(t.text_dim));
